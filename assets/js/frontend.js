@@ -5,6 +5,155 @@
         return;
     }
 
+    function markComponentProcessed($component) {
+        $component.attr('data-socp-processed', 'true');
+    }
+
+    function isComponentProcessed($component) {
+        return $component.attr('data-socp-processed') === 'true';
+    }
+
+    function componentHasSelection($component) {
+        if ($component.find('.wooco_component_product_selected, .wooco_component_product_selected_list_item').length) {
+            return true;
+        }
+
+        if ($component.find('input[type="radio"]:checked, input[type="checkbox"]:checked').length) {
+            return true;
+        }
+
+        var hasSelect = $component.find('select').filter(function () {
+            var value = $(this).val();
+            return value !== null && value !== undefined && value !== '';
+        }).length > 0;
+
+        if (hasSelect) {
+            return true;
+        }
+
+        var hasHiddenSelection = $component.find('input[type="hidden"][name*="selected"][value]')
+            .filter(function () {
+                var value = $(this).val();
+                return value !== null && value !== undefined && value !== '' && value !== '0';
+            }).length > 0;
+
+        return hasHiddenSelection;
+    }
+
+    function triggerChoosePanel($component) {
+        var $choose = $component.find('.wooco_component_product_selection_list_item_choose:visible').first();
+
+        if ($choose.length) {
+            $choose.trigger('click');
+        }
+    }
+
+    function selectFromList($component) {
+        var $list = $component.find('.wooco_component_product_selection_list, .wooco_component_product_list');
+        var $firstItem = $list.find('.wooco_component_product_selection_list_item, .wooco_component_product_list_item')
+            .filter(function () {
+                var $item = $(this);
+                return !$item.hasClass('disabled') && !$item.hasClass('wooco-disable') && !$item.hasClass('out-of-stock');
+            })
+            .first();
+
+        if (!$firstItem.length) {
+            return false;
+        }
+
+        var $action = $firstItem.find('.wooco_component_product_selection_list_item_add, .wooco_component_product_selection_list_item_select, button, a').filter(function () {
+            var $el = $(this);
+            return $el.is(':visible');
+        }).first();
+
+        if ($action.length) {
+            $action.trigger('click');
+            return true;
+        }
+
+        var $input = $firstItem.find('input[type="radio"], input[type="checkbox"]').filter(function () {
+            return !$(this).prop('disabled');
+        }).first();
+
+        if ($input.length) {
+            $input.prop('checked', true).trigger('change');
+            return true;
+        }
+
+        $firstItem.trigger('click');
+        return true;
+    }
+
+    function selectFromDropdown($component) {
+        var $selects = $component.find('select').filter(function () {
+            return !$(this).prop('disabled');
+        });
+
+        var selected = false;
+
+        $selects.each(function () {
+            var $select = $(this);
+            if ($select.val()) {
+                selected = true;
+                return;
+            }
+
+            var $option = $select.find('option').filter(function () {
+                var $opt = $(this);
+                return !$opt.prop('disabled') && $opt.val();
+            }).first();
+
+            if ($option.length) {
+                $select.val($option.val()).trigger('change');
+                selected = true;
+            }
+        });
+
+        return selected;
+    }
+
+    function autoSelectComponent($component) {
+        if (componentHasSelection($component)) {
+            markComponentProcessed($component);
+            return;
+        }
+
+        triggerChoosePanel($component);
+
+        var selected = selectFromDropdown($component);
+
+        if (!selected) {
+            selected = selectFromList($component);
+        }
+
+        if (!selected) {
+            var $inputs = $component.find('input[type="radio"], input[type="checkbox"]').filter(function () {
+                var $input = $(this);
+                return !$input.prop('disabled');
+            });
+
+            if ($inputs.length) {
+                $inputs.each(function () {
+                    var $input = $(this);
+                    if (!$input.prop('checked')) {
+                        $input.prop('checked', true).trigger('change');
+                    }
+                });
+
+                selected = true;
+            }
+        }
+
+        if (selected) {
+            markComponentProcessed($component);
+        } else {
+            // Retry once the DOM settles as items might still be loading
+            setTimeout(function () {
+                autoSelectComponent($component);
+            }, 150);
+        }
+    }
+
     function autoSelectAll($context) {
         if (!SOCPSettings.autoSelect) {
             return;
@@ -13,42 +162,11 @@
         $context.find('.wooco_component').each(function () {
             var $component = $(this);
 
-            if ($component.data('socp-auto-selected')) {
+            if (isComponentProcessed($component)) {
                 return;
             }
 
-            $component.data('socp-auto-selected', true);
-
-            $component.find('.wooco_component_product_selection_list_item_choose').each(function () {
-                var $trigger = $(this);
-
-                if ($trigger.is(':visible')) {
-                    $trigger.trigger('click');
-                }
-            });
-
-            $component.find('input[type="checkbox"]').each(function () {
-                var $checkbox = $(this);
-
-                if (!$checkbox.prop('checked') && !$checkbox.prop('disabled')) {
-                    $checkbox.prop('checked', true).trigger('change');
-                }
-            });
-
-            var $radios = $component.find('input[type="radio"]');
-            if ($radios.length) {
-                var $radioToSelect = $radios.filter(':checked').first();
-
-                if (!$radioToSelect.length) {
-                    $radioToSelect = $radios.filter(function () {
-                        return !$(this).prop('disabled');
-                    }).first();
-                }
-
-                if ($radioToSelect.length && !$radioToSelect.prop('checked')) {
-                    $radioToSelect.prop('checked', true).trigger('change');
-                }
-            }
+            autoSelectComponent($component);
         });
     }
 
